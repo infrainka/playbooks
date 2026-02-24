@@ -1,0 +1,129 @@
+---
+- name: Ubuntu Developer Workstation Provisioning
+  hosts: workstation
+  become: true
+  vars:
+    local_user: "{{ lookup('env', 'USER') }}"
+    
+    # Easily customizable package lists for the end-user
+    apt_core_packages:
+      - apt-transport-https
+      - build-essential
+      - ca-certificates
+      - curl
+      - git
+      - htop
+      - jq
+      - software-properties-common
+      - tree
+      - unzip
+      - wget
+      - zsh
+      - python3-pip
+      - python3-venv
+      
+    snap_classic_packages:
+      - code
+      - postman
+
+  tasks:
+    - name: System Baseline & Core Packages
+      block:
+        - name: Update apt cache and upgrade packages
+          ansible.builtin.apt:
+            update_cache: true
+            cache_valid_time: 3600
+
+        - name: Install core system and CLI development utilities
+          ansible.builtin.apt:
+            name: "{{ apt_core_packages }}"
+            state: present
+
+    - name: Docker Containerization Engine
+      block:
+        - name: Ensure Docker GPG keyring directory exists
+          ansible.builtin.file:
+            path: /etc/apt/keyrings
+            state: directory
+            mode: '0755'
+
+        - name: Add Docker official GPG key
+          ansible.builtin.get_url:
+            url: https://download.docker.com/linux/ubuntu/gpg
+            dest: /etc/apt/keyrings/docker.asc
+            mode: '0644'
+
+        - name: Add Docker APT repository
+          ansible.builtin.apt_repository:
+            repo: "deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu {{ ansible_distribution_release }} stable"
+            state: present
+
+        - name: Install Docker components
+          ansible.builtin.apt:
+            name:
+              - docker-ce
+              - docker-ce-cli
+              - containerd.io
+              - docker-compose-plugin
+            state: present
+            update_cache: true
+
+        - name: Ensure local user is in the docker group
+          ansible.builtin.user:
+            name: "{{ local_user }}"
+            groups: docker
+            append: true
+
+    - name: Modern Web Development Setup (Node.js)
+      block:
+        - name: Add NodeSource GPG key
+          ansible.builtin.get_url:
+            url: https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key
+            dest: /etc/apt/keyrings/nodesource.asc
+            mode: '0644'
+
+        - name: Add Node.js 20.x repository
+          ansible.builtin.apt_repository:
+            repo: "deb [signed-by=/etc/apt/keyrings/nodesource.asc] https://deb.nodesource.com/node_20.x nodistro main"
+            state: present
+
+        - name: Install Node.js
+          ansible.builtin.apt:
+            name: nodejs
+            state: present
+            update_cache: true
+
+    - name: GUI Developer Tools (Snaps)
+      community.general.snap:
+        name: "{{ snap_classic_packages }}"
+        classic: true
+
+    - name: Terminal & Workspace Quality of Life
+      block:
+        - name: Ensure default user directories exist
+          ansible.builtin.file:
+            path: "/home/{{ local_user }}/{{ item }}"
+            state: directory
+            owner: "{{ local_user }}"
+            group: "{{ local_user }}"
+            mode: '0755'
+          loop:
+            - Workspace
+            - .config
+            - .ssh
+
+        - name: Change user default shell to zsh
+          ansible.builtin.user:
+            name: "{{ local_user }}"
+            shell: /bin/zsh
+
+        - name: Check if Oh My Zsh is already installed
+          ansible.builtin.stat:
+            path: "/home/{{ local_user }}/.oh-my-zsh"
+          register: ohmyzsh_stat
+
+        - name: Install Oh My Zsh
+          become_user: "{{ local_user }}"
+          ansible.builtin.shell: >
+            curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh | sh
+          when: not ohmyzsh_stat.stat.exists
