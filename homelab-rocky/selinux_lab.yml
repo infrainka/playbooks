@@ -1,0 +1,65 @@
+---
+- name: SELinux Homelab Exercise - Configure Apache with SELinux
+  hosts: rocky_lab
+  become: yes
+  vars:
+    web_dir: "/opt/myweb"
+    web_port: 8081
+    index_content: "<h1>SELinux Lab Success!</h1>"
+
+  tasks:
+    - name: Ensure SELinux is set to enforcing
+      selinux:
+        policy: targeted
+        state: enforcing
+
+    - name: Install Apache and SELinux management tools
+      dnf:
+        name:
+          - httpd
+          - policycoreutils-python-utils
+          - setroubleshoot-server
+        state: present
+
+    - name: Create non-standard web directory
+      file:
+        path: "{{ web_dir }}"
+        state: directory
+        mode: '0755'
+
+    - name: Create index.html in non-standard location
+      copy:
+        content: "{{ index_content }}"
+        dest: "{{ web_dir }}/index.html"
+        mode: '0644'
+
+    - name: Configure Apache to use non-standard port and directory
+      copy:
+        content: |
+          Listen {{ web_port }}
+          DocumentRoot "{{ web_dir }}"
+          <Directory "{{ web_dir }}">
+              Require all granted
+          </Directory>
+        dest: /etc/httpd/conf.d/selinux_lab.conf
+
+    - name: Ensure Apache is restarted (this might fail at first)
+      systemd:
+        name: httpd
+        state: restarted
+        enabled: yes
+      ignore_errors: yes
+      register: apache_status
+
+    - name: Explain the current state
+      debug:
+        msg: |
+          "The Apache service might have failed to start or might be blocked from accessing content.
+          This is expected for this SELinux exercise.
+          1. Port {{ web_port }} is likely NOT in http_port_t.
+          2. Directory {{ web_dir }} is likely NOT in httpd_sys_content_t.
+          
+          To troubleshoot:
+          - Check /var/log/audit/audit.log for AVC denials.
+          - Use 'sealert -a /var/log/audit/audit.log' for explanations.
+          - Use 'ls -Z {{ web_dir }}' to see current labels."

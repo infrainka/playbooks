@@ -1,0 +1,35 @@
+---
+- name: SELinux Remediation - Correct Fixes
+  hosts: rocky_lab
+  become: yes
+  vars:
+    web_dir: "/opt/myweb"
+    web_port: 8081
+
+  tasks:
+    - name: Add port {{ web_port }} to http_port_t
+      seport:
+        ports: "{{ web_port }}"
+        proto: tcp
+        setype: http_port_t
+        state: present
+
+    - name: Set fcontext for the new web directory
+      sefcontext:
+        target: "{{ web_dir }}(/.*)?"
+        setype: httpd_sys_content_t
+        state: present
+
+    - name: Apply new SELinux labels to the filesystem
+      command: restorecon -Rv "{{ web_dir }}"
+      changed_when: true
+
+    - name: Start Apache correctly
+      systemd:
+        name: httpd
+        state: started
+        enabled: yes
+
+    - name: Success message
+      debug:
+        msg: "SELinux has been configured correctly. Verify with: curl localhost:{{ web_port }}"
